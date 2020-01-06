@@ -1,2 +1,0 @@
-#### Documentation Folder
-This is were you will find any relevant information about this project in order for it to be reproducable, such as circuit information, mechanical design, and references to sources we used.
