@@ -12,20 +12,31 @@
 */
 
 #include <ArduinoBLE.h>
+#include <String.h>
 
  // BLE Battery Service
 BLEService batteryService("180F");
+
+String MAC;
 
 // BLE Battery Level Characteristic
 BLEUnsignedCharCharacteristic batteryLevelChar("2A19",  // standard 16-bit characteristic UUID
     BLERead | BLENotify); // remote clients will be able to get notifications if this characteristic changes
 
-int oldBatteryLevel = 0;  // last battery level reading from analog input
+BLEUnsignedCharCharacteristic vibrationChar("ABDC", BLEWriteWithoutResponse| BLEWrite | BLERead);
+
 long previousMillis = 0;  // last time the battery level was checked, in ms
 
 void setup() {
   Serial.begin(9600);    // initialize serial communication
-  while (!Serial);
+  long tstart = millis();
+  // wait at least 2 seconds for serial to start up if using it to debug
+  while (!Serial)
+  {
+    if(millis()-tstart > 2000)
+      break;
+  }
+  Serial.println(1);
 
   pinMode(LED_BUILTIN, OUTPUT); // initialize the built-in LED pin to indicate when a central is connected
 
@@ -44,8 +55,11 @@ void setup() {
   BLE.setLocalName("BatteryMonitor");
   BLE.setAdvertisedService(batteryService); // add the service UUID
   batteryService.addCharacteristic(batteryLevelChar); // add the battery level characteristic
+  batteryService.addCharacteristic(vibrationChar);
   BLE.addService(batteryService); // Add the battery service
-  batteryLevelChar.writeValue(oldBatteryLevel); // set initial value for this characteristic
+  batteryLevelChar.writeValue(0); // set initial value for this characteristic
+  vibrationChar.writeValue(0);
+  MAC = BLE.address();
 
   /* Start advertising BLE.  It will start continuously transmitting BLE
      advertising packets and will be visible to remote BLE central devices
@@ -53,8 +67,19 @@ void setup() {
 
   // start advertising
   BLE.advertise();
+  MAC.remove(2,1);
+  MAC.remove(4,1);
+  MAC.remove(6,1);
+  MAC.remove(8,1);
 
   Serial.println("Bluetooth device active, waiting for connections...");
+}
+
+void printHex(uint8_t num) {
+  char hexCar[3];
+
+  sprintf(hexCar, "%02X", num);
+  Serial.print(hexCar);
 }
 
 void loop() {
@@ -68,24 +93,34 @@ void loop() {
     Serial.println(central.address());
     // turn on the LED to indicate the connection:
     digitalWrite(LED_BUILTIN, HIGH);
-
-    // check the battery level every 200ms
+    unsigned char vibration[20] = {0};
+    int data = 10;
     // while the central is connected:
     while (central.connected()) {
       long currentMillis = millis();
-      // if 200ms have passed, check the battery level:
-      if (currentMillis - previousMillis >= 200) {
-        previousMillis = currentMillis;
-        int battery = analogRead(A0);
-        int batteryLevel = map(battery, 0, 1023, 0, 100);
 
-        if (batteryLevel != oldBatteryLevel) {      // if the battery level has changed
-          Serial.print("Battery Level % is now: "); // print it
-          Serial.println(batteryLevel);
-          batteryLevelChar.writeValue(batteryLevel);  // and update the battery level characteristic
-          oldBatteryLevel = batteryLevel;           // save the level for next comparison
+      if (currentMillis - previousMillis >= 200) {
+        Serial.println(MAC);
+        previousMillis = currentMillis;
+        Serial.print("Data is now: ");
+        Serial.println(data);
+        batteryLevelChar.writeValue(data);  // and update the battery level characteristic
+        data = (data-9) % 10 + 10;
+        // if the vibration characteristic has been written to by central
+        if(vibrationChar.written())
+        {
+          Serial.print("bytes read: ");
+          Serial.println(vibrationChar.readValue(vibration, 20));
+          Serial.print("Vibration is now: ");
+          Serial.print(vibrationChar.value());
+          // for(size_t i = 0; i < sizeof(vibration); i++)
+          // {
+          //   printHex(vibration[i]);  
+          // }
+          Serial.println();
         }
       }
+      
     }
     // when the central disconnects, turn off the LED:
     digitalWrite(LED_BUILTIN, LOW);
